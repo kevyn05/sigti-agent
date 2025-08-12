@@ -173,8 +173,8 @@ EOF
 echo "Creando archivo de configuración de ejemplo config.example.json..."
 cat > config.example.json << 'EOF'
 {
-  "server_url": "https://tuservidorsigti.com/api/ingesta_agente.php",
-  "agent_key": "tu_token_api_secreto"
+  "server_url": "https://localhost/sigti/ciberseguridad/ingesta_agente.php",
+  "agent_key": "egBhNHRQOQwdXKNlPEuRmUJSRYxz5rPmRaudif6mOmQ="
 }
 EOF
 
