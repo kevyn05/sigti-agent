@@ -25,3 +25,26 @@ Este agente se instala en los servidores que quieres monitorear. Envía periódi
 ```bash
 git clone https://github.com/kevyn05/sigti-agent.git
 cd sigti-agent
+
+Dale permisos de ejecución:
+
+chmod +x sigti_agent.sh
+
+sudo ./sigti_agent.sh
+
+
+Edita el archivo /etc/default/sigti_agent (creado por el script) y coloca el token:
+
+SIGTI_AGENT_KEY="tu_token_api_aqui"
+SIGTI_SERVER_URL="http://tu-servidor-sigti/api/ingesta_agente.php"
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now sigti-agent.timer
+
+sudo systemctl status sigti-agent.timer
+sudo systemctl status sigti-agent.service
+
+Probar manualmente la ejecucion:
+sudo /usr/local/bin/sigti_agent.py
+
+
