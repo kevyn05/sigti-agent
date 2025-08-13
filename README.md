@@ -35,8 +35,8 @@ sudo ./sigti_agent.sh
 
 Edita el archivo /etc/default/sigti_agent (creado por el script) y coloca el token:
 
-SIGTI_AGENT_KEY="tu_token_api_aqui"
-SIGTI_SERVER_URL="http://tu-servidor-sigti/api/ingesta_agente.php"
+SIGTI_AGENT_KEY="egBhNHRQOQwdXKNlPEuRmUJSRYxz5rPmRaudif6mOmQ="
+SIGTI_SERVER_URL="http://localhost/sigti/ciberseguridad/ingesta_agente.php"
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now sigti-agent.timer
