@@ -1,41 +1,23 @@
 #!/bin/bash
-# Script para crear repo sigti-agent localmente, preparar archivos básicos y subir a GitHub
+# Script plug & play para instalar SIGTI Agent en un servidor remoto
 
 set -e
 
-REPO_NAME="sigti-agent"
-GITHUB_URL="https://github.com/kevyn05/sigti-agent.git"  # <- Cambia esto por tu URL real
+# Directorio temporal de trabajo
+TMP_DIR="$HOME/sigti-agent-install"
+mkdir -p "$TMP_DIR"
+cd "$TMP_DIR"
 
-echo "Creando carpeta del proyecto..."
-mkdir -p "$REPO_NAME"
-cd "$REPO_NAME"
+echo "Instalando dependencias..."
+apt-get update
+apt-get install -y python3 python3-pip curl
+pip3 install requests --quiet
 
-echo "Inicializando git..."
-git init
-
-echo "Creando README.md..."
-cat > README.md << 'EOF'
-# SIGTI Agent
-
-Agente para enviar datos de monitoreo a SIGTI (Sistema de Información y Gestión Técnica Informática).
-
-Este proyecto incluye:
-
-- script Python `sigti_agent.py`
-- instalador bash `instalar_agente.sh`
-- archivos systemd para servicio y timer
-- archivo de configuración ejemplo `config.example.json`
-
-EOF
-
+# Crear script Python del agente
 echo "Creando sigti_agent.py..."
 cat > sigti_agent.py << 'EOF'
 #!/usr/bin/env python3
-import os
-import sys
-import json
-import argparse
-import requests
+import os, sys, json, argparse, requests
 from datetime import datetime
 
 def cargar_config(path):
@@ -44,16 +26,9 @@ def cargar_config(path):
 
 def obtener_eventos_simulados():
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    return [{
-        "fecha": now,
-        "tipo": "EstadoSistema",
-        "descripcion": "Agente activo",
-        "severidad": "Media",
-        "estado": "Pendiente",
-        "origen": "Agente",
-        "usuario": None,
-        "detalles": None
-    }]
+    return [{"fecha": now, "tipo": "EstadoSistema", "descripcion": "Agente activo",
+             "severidad": "Media", "estado": "Pendiente",
+             "origen": "Agente", "usuario": None, "detalles": None}]
 
 def main():
     parser = argparse.ArgumentParser(description='SIGTI Agent')
@@ -65,7 +40,6 @@ def main():
         sys.exit(1)
 
     config = cargar_config(args.config)
-
     server_url = config.get('server_url')
     agent_key = config.get('agent_key')
 
@@ -74,17 +48,8 @@ def main():
         sys.exit(1)
 
     hostname = os.uname().nodename
-
-    payload = {
-        "agent_id": agent_key,
-        "host": hostname,
-        "events": obtener_eventos_simulados()
-    }
-
-    headers = {
-        "Content-Type": "application/json",
-        "X-SIGTI-KEY": agent_key
-    }
+    payload = {"agent_id": agent_key, "host": hostname, "events": obtener_eventos_simulados()}
+    headers = {"Content-Type": "application/json", "X-SIGTI-KEY": agent_key}
 
     try:
         r = requests.post(server_url, json=payload, headers=headers, timeout=10)
@@ -99,60 +64,32 @@ if __name__ == "__main__":
     main()
 EOF
 
-echo "Creando instalar_agente.sh..."
-cat > instalar_agente.sh << 'EOF'
-#!/bin/bash
+echo "Copiando script a /usr/local/bin..."
+cp sigti_agent.py /usr/local/bin/sigti_agent.py
+chmod +x /usr/local/bin/sigti_agent.py
 
-AGENTE_DIR="/usr/local/bin"
-AGENTE_SCRIPT="sigti_agent.py"
-SERVICE_NAME="sigti-agent.service"
-TIMER_NAME="sigti-agent.timer"
-CONF_FILE="/etc/sigti_agent.conf"
-
-echo "Instalando dependencias..."
-apt-get update
-apt-get install -y python3 python3-pip curl
-
-echo "Instalando módulo requests de Python..."
-pip3 install requests --quiet
-
-echo "Copiando script Python a $AGENTE_DIR..."
-cp $PWD/$AGENTE_SCRIPT $AGENTE_DIR/
-chmod +x $AGENTE_DIR/$AGENTE_SCRIPT
-
-echo "Verificando archivo de configuración..."
-if [ ! -f "$CONF_FILE" ]; then
-  echo "No existe $CONF_FILE, copie config.example.json a $CONF_FILE y edite con sus datos."
-  exit 1
+# Crear configuración si no existe
+if [ ! -f /etc/sigti_agent.conf ]; then
+    echo "Creando configuración en /etc/sigti_agent.conf..."
+    cat > /etc/sigti_agent.conf << 'EOF'
+{
+  "server_url": "http://localhost/sigti/ciberseguridad/ingesta_agente.php",
+  "agent_key": "egBhNHRQOQwdXKNlPEuRmUJSRYxz5rPmRaudif6mOmQ="
+}
+EOF
 fi
 
-echo "Copiando archivos systemd..."
-cp systemd/$SERVICE_NAME /etc/systemd/system/
-cp systemd/$TIMER_NAME /etc/systemd/system/
-
-echo "Recargando systemd..."
-systemctl daemon-reload
-
-echo "Habilitando y arrancando el timer..."
-systemctl enable --now $TIMER_NAME
-
-echo "Instalación completada."
-systemctl status $TIMER_NAME
-EOF
-
-echo "Creando carpeta systemd y archivos de servicio y timer..."
+# Crear archivos systemd
+echo "Creando archivos systemd..."
 mkdir -p systemd
-
 cat > systemd/sigti-agent.service << 'EOF'
 [Unit]
 Description=SIGTI Agent Service
 After=network.target
-
 [Service]
 Type=simple
 ExecStart=/usr/bin/python3 /usr/local/bin/sigti_agent.py --config /etc/sigti_agent.conf
 Restart=on-failure
-
 [Install]
 WantedBy=multi-user.target
 EOF
@@ -160,31 +97,18 @@ EOF
 cat > systemd/sigti-agent.timer << 'EOF'
 [Unit]
 Description=Run SIGTI Agent every 5 minutes
-
 [Timer]
 OnBootSec=1min
 OnUnitActiveSec=5min
 Unit=sigti-agent.service
-
 [Install]
 WantedBy=timers.target
 EOF
 
-echo "Creando archivo de configuración de ejemplo config.example.json..."
-cat > config.example.json << 'EOF'
-{
-  "server_url": "http://localhost/sigti/ciberseguridad/ingesta_agente.php",
-  "agent_key": "egBhNHRQOQwdXKNlPEuRmUJSRYxz5rPmRaudif6mOmQ="
-}
-EOF
+echo "Instalando systemd..."
+cp systemd/sigti-agent.service /etc/systemd/system/
+cp systemd/sigti-agent.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now sigti-agent.timer
 
-echo "Agregando todos los archivos y haciendo commit inicial..."
-git add .
-git commit -m "Initial commit - agente SIGTI base"
-
-echo "Agregando remoto GitHub y haciendo push..."
-git remote add origin $GITHUB_URL
-git branch -M main
-git push -u origin main
-
-echo "Listo! Proyecto creado y subido a GitHub."
+echo "Instalación completada. El agente se ejecutará cada 5 minutos."
