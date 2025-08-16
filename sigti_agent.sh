@@ -1,17 +1,37 @@
 #!/bin/bash
-# Script plug & play para instalar SIGTI Agent en un servidor remoto
+# Instalación completa de SIGTI Agent para servidores remotos
+# Plug & Play: Python, virtualenv, systemd
 
 set -e
 
-# Directorio temporal de trabajo
 TMP_DIR="$HOME/sigti-agent-install"
+AGENTE_DIR="/usr/local/bin"
+CONF_FILE="/etc/sigti_agent.conf"
+VENV_DIR="/opt/sigti_agent_venv"
+SERVICE_NAME="sigti-agent.service"
+TIMER_NAME="sigti-agent.timer"
+
+echo "Creando directorio temporal $TMP_DIR..."
 mkdir -p "$TMP_DIR"
 cd "$TMP_DIR"
 
-echo "Instalando dependencias..."
+# Instalación de dependencias del sistema
+echo "Instalando dependencias del sistema..."
 apt-get update
-apt-get install -y python3 python3-pip curl
-pip3 install requests --quiet
+apt-get install -y python3 python3-venv curl
+
+# Crear virtualenv para el agente
+if [ ! -d "$VENV_DIR" ]; then
+    echo "Creando virtualenv en $VENV_DIR..."
+    python3 -m venv "$VENV_DIR"
+fi
+
+# Activar virtualenv y instalar requests
+echo "Instalando requests en el virtualenv..."
+source "$VENV_DIR/bin/activate"
+pip install --upgrade pip
+pip install requests
+deactivate
 
 # Crear script Python del agente
 echo "Creando sigti_agent.py..."
@@ -64,14 +84,14 @@ if __name__ == "__main__":
     main()
 EOF
 
-echo "Copiando script a /usr/local/bin..."
-cp sigti_agent.py /usr/local/bin/sigti_agent.py
-chmod +x /usr/local/bin/sigti_agent.py
+echo "Copiando script a $AGENTE_DIR..."
+cp sigti_agent.py "$AGENTE_DIR/sigti_agent.py"
+chmod +x "$AGENTE_DIR/sigti_agent.py"
 
 # Crear configuración si no existe
-if [ ! -f /etc/sigti_agent.conf ]; then
-    echo "Creando configuración en /etc/sigti_agent.conf..."
-    cat > /etc/sigti_agent.conf << 'EOF'
+if [ ! -f "$CONF_FILE" ]; then
+    echo "Creando configuración en $CONF_FILE..."
+    cat > "$CONF_FILE" << 'EOF'
 {
   "server_url": "http://localhost/sigti/ciberseguridad/ingesta_agente.php",
   "agent_key": "egBhNHRQOQwdXKNlPEuRmUJSRYxz5rPmRaudif6mOmQ="
@@ -82,33 +102,37 @@ fi
 # Crear archivos systemd
 echo "Creando archivos systemd..."
 mkdir -p systemd
-cat > systemd/sigti-agent.service << 'EOF'
+cat > systemd/$SERVICE_NAME << EOF
 [Unit]
 Description=SIGTI Agent Service
 After=network.target
+
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /usr/local/bin/sigti_agent.py --config /etc/sigti_agent.conf
+ExecStart=$VENV_DIR/bin/python $AGENTE_DIR/sigti_agent.py --config $CONF_FILE
 Restart=on-failure
+
 [Install]
 WantedBy=multi-user.target
 EOF
 
-cat > systemd/sigti-agent.timer << 'EOF'
+cat > systemd/$TIMER_NAME << EOF
 [Unit]
 Description=Run SIGTI Agent every 5 minutes
+
 [Timer]
 OnBootSec=1min
 OnUnitActiveSec=5min
-Unit=sigti-agent.service
+Unit=$SERVICE_NAME
+
 [Install]
 WantedBy=timers.target
 EOF
 
 echo "Instalando systemd..."
-cp systemd/sigti-agent.service /etc/systemd/system/
-cp systemd/sigti-agent.timer /etc/systemd/system/
+cp systemd/$SERVICE_NAME /etc/systemd/system/
+cp systemd/$TIMER_NAME /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now sigti-agent.timer
+systemctl enable --now $TIMER_NAME
 
-echo "Instalación completada. El agente se ejecutará cada 5 minutos."
+echo "Instalación completada. El agente se ejecutará cada 5 minutos usando virtualenv en $VENV_DIR."
